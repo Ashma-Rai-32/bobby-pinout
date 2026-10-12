@@ -1,4 +1,4 @@
 [wokwi]
 version = 1
-firmware = "build/esp32-trials.ino.bin"
-elf = "build/esp32-trials.ino.elf"
+firmware = "build/bobby-pinout.ino.bin"
+elf = "build/bobby-pinout.ino.elf"
