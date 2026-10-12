@@ -40,11 +40,18 @@ void setup() {
   display.begin(SSD1306_SWITCHCAPVCC, foundAddress); // start the OLED at the address the scan found
   display.clearDisplay();                    // wipe the screen buffer
   display.setTextColor(SSD1306_WHITE);       // without this, text is invisible
-  display.setTextSize(5);                    // 1 = tiny, 3 = big
-  display.setCursor(1, 1);                   // top-left corner (x, y)
-  display.print('A');                        // draw 'A' into the buffer
-  display.display();                         // send the buffer to the screen
+  display.setTextSize(4);                    // 1 = tiny, 3 = big
+  display.setCursor(0,0);                   // top-left corner (x, y)
 
+  const char* word="GRMLN";
+
+  for (int i =0; word[i]!='\0'; i++) {
+    display.setCursor(30*i, 15);                   // top-left corner (x, y)
+    display.print(word[i]);  
+    display.display();                         // send the buffer to the screen
+    delay(2000); // wait 200 milliseconds
+  }
+ 
 }
 
 void loop() {
