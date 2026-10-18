@@ -1,0 +1,4 @@
+[wokwi]
+version = 1
+firmware = "build/08-wifi-clock.ino.bin"
+elf = "build/08-wifi-clock.ino.elf"

@@ -1,0 +1,4 @@
+[wokwi]
+version = 1
+firmware = "build/05-text.ino.bin"
+elf = "build/05-text.ino.elf"

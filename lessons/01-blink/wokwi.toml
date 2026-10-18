@@ -1,0 +1,4 @@
+[wokwi]
+version = 1
+firmware = "build/01-blink.ino.bin"
+elf = "build/01-blink.ino.elf"

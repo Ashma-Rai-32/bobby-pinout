@@ -1,0 +1,4 @@
+[wokwi]
+version = 1
+firmware = "build/03-button.ino.bin"
+elf = "build/03-button.ino.elf"

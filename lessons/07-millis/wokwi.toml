@@ -1,0 +1,4 @@
+[wokwi]
+version = 1
+firmware = "build/07-millis.ino.bin"
+elf = "build/07-millis.ino.elf"

@@ -1,0 +1,4 @@
+[wokwi]
+version = 1
+firmware = "build/06-face.ino.bin"
+elf = "build/06-face.ino.elf"

@@ -33,11 +33,15 @@ void setup() {
 
   Serial.println("Scan finished:");
   Serial.println(foundAddress, HEX); // print the address in hexadecimal, then newline
-
-
-
-
+  
+  
+  
+  
   display.begin(SSD1306_SWITCHCAPVCC, foundAddress); // start the OLED at the address the scan found
+  display.invertDisplay(true);   // white background, dark text
+  display.ssd1306_command(SSD1306_SETCONTRAST);
+  display.ssd1306_command(50);   // 0 = dimmest, 255 = brightest
+
   display.clearDisplay();                    // wipe the screen buffer
   display.setTextColor(SSD1306_WHITE);       // without this, text is invisible
   display.setTextSize(4);                    // 1 = tiny, 3 = big
@@ -46,7 +50,7 @@ void setup() {
   const char* word="GRMLN";
 
   for (int i =0; word[i]!='\0'; i++) {
-    display.setCursor(30*i, 15);                   // top-left corner (x, y)
+    display.setCursor(25*i, 15);                   // top-left corner (x, y)
     display.print(word[i]);  
     display.display();                         // send the buffer to the screen
     delay(2000); // wait 200 milliseconds
