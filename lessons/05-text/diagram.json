@@ -18,6 +18,24 @@
       "attrs": {
         "i2cAddress": "0x3c"
       }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": -150,
+      "left": 150,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": -200,
+      "left": 230,
+      "attrs": {
+        "color": "blue"
+      }
     }
   ],
   "connections": [
@@ -55,6 +73,24 @@
       "oled1:SDA",
       "esp:6",
       "green",
+      []
+    ],
+    [
+      "esp:3V3.1",
+      "r1:1",
+      "red",
+      []
+    ],
+    [
+      "r1:2",
+      "led1:A",
+      "red",
+      []
+    ],
+    [
+      "led1:C",
+      "esp:8",
+      "blue",
       []
     ]
   ],
