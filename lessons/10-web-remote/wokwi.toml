@@ -1,0 +1,8 @@
+[wokwi]
+version = 1
+firmware = "build/10-web-remote.ino.bin"
+elf = "build/10-web-remote.ino.elf"
+
+[[net.forward]]
+from = "localhost:8180"
+to = "target:80"

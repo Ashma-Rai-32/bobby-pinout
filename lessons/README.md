@@ -15,6 +15,7 @@ From "board in hand" to an animated face on the OLED. Each lesson adds one new i
 - [ ] Lesson 6: Draw a face
 - [ ] Lesson 7: Two things at once (`millis()`)
 - [ ] Lesson 8: Wi‑Fi clock
+- [ ] Lesson 10: Phone remote (web interface)
 
 ---
 ```
@@ -459,6 +460,387 @@ arduino-cli monitor -p $PORT -c baudrate=115200
 - The ESP32‑C3 only supports **2.4 GHz** Wi‑Fi, not 5 GHz.
 
 **Don't commit your Wi‑Fi password.** Put it in a `secrets.h` file next to the sketch and add that file to `.gitignore`.
+
+---
+
+## Lesson 10: Phone remote (web interface)
+
+**You'll learn:** running a web server on the ESP32, HTML pages, URLs with parameters, and controlling hardware from a browser.
+
+**Goal:** open a page on your phone, tap buttons or type a message, and the board reacts.
+
+You build **one sketch in small steps**. Each step adds one idea; test it before moving on.
+
+```
+Phone browser                          ESP32
+┌──────────────────────┐               ┌───────────────────────┐
+│ http://192.168.1.42  │  GET /toggle  │ WebServer sees /toggle│
+│ [ Toggle LED ]       │  ──────────►  │ → runs handleToggle() │
+│ LED ON               │  ◄──────────  │ → replies "LED ON"    │
+└──────────────────────┘   reply text  └───────────────────────┘
+```
+
+### Folder layout
+
+```
+lessons/10-web-remote/
+├── 10-web-remote.ino   ← Wi‑Fi, server, handlers (the C++ logic)
+├── page.h              ← the web page's HTML (from step 2)
+├── secrets.h           ← Wi‑Fi name and password (git-ignored)
+├── wokwi.toml          ← includes a port forward (see "In Wokwi")
+└── diagram.json        ← copy from lessons/05-text/ (OLED + blue LED on GPIO 8)
+```
+
+`secrets.h` (use `Wokwi-GUEST` and `""` in the simulator):
+
+```cpp
+#define WIFI_SSID "your-wifi-name"
+#define WIFI_PASS "your-wifi-password"
+```
+
+Use `WIFI_SSID`, not just `SSID`: the WiFi library has its own `WiFi.SSID()`, and a `#define SSID` would replace that too. Check `secrets.h` is in the project's `.gitignore` and that `git status` doesn't list it.
+
+### Where should the HTML live?
+
+| Option | How | Verdict |
+|---|---|---|
+| Raw string in the `.ino` | `const char PAGE[] = R"rawliteral( ... )rawliteral";` above `setup()` | Works, but the `.ino` gets long and mixes two languages |
+| **Raw string in `page.h`** | Same string, in its own file, `#include "page.h"` | ✅ **Use this.** Keeps HTML and C++ apart, still uploads with your code, same pattern as `secrets.h` and `frames.h` |
+| `index.html` on the ESP32's filesystem (LittleFS) | A real `.html` file uploaded separately to flash | What bigger projects do, with proper HTML editing, but it needs a separate filesystem upload step. Worth it once the page has several files (CSS, JS, images). |
+
+**Why `R"rawliteral(...)rawliteral"`?** HTML is full of `"` quotes. In a normal C++ string, every one would need a `\` in front. A **raw string** takes everything between `R"rawliteral(` and `)rawliteral"` exactly as written. `rawliteral` is just a label; any word works, as long as it doesn't appear inside the HTML.
+
+---
+
+### Step 1: Hello from the ESP32
+
+**New idea:** a web server, and one URL path linked to one function.
+
+```cpp
+#include <WiFi.h>
+#include <WebServer.h>
+#include <Adafruit_SSD1306.h>
+#include "secrets.h"
+
+#define SDA_PIN 6
+#define SCL_PIN 7
+
+Adafruit_SSD1306 display(128, 64, &Wire, -1);
+WebServer server(80);   // port 80 = the normal port for web pages
+
+void showText(String text, int size) {
+  display.clearDisplay();
+  display.setTextSize(size);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.print(text);
+  display.display();
+}
+
+void handleRoot() {
+  server.send(200, "text/plain", "Hello from Bobby!");
+}
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(SDA_PIN, SCL_PIN);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("OLED not found");
+    while (true) delay(10);
+  }
+
+  showText("Connecting...", 1);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);   // helps the SuperMini's weak antenna
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  String ip = WiFi.localIP().toString();
+  Serial.println("\nOpen http://" + ip);
+  showText("Open:\n\nhttp://" + ip, 1);   // the IP can change, so always show it
+
+  server.on("/", handleRoot);   // "/" = the main page
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();   // check for requests from browsers
+}
+```
+
+**Test:** open the address from the OLED. The browser shows `Hello from Bobby!`.
+
+**What happened:**
+- `server.on("/", handleRoot)` links the path `/` to the function `handleRoot`.
+- `server.handleClient()` in `loop()` checks for visitors. Without it, the page never loads.
+- `server.send(200, "text/plain", ...)` replies. **200** means "OK" (404 means "not found"), and **`text/plain`** tells the browser it's plain text.
+
+---
+
+### Step 2: A real page with a button
+
+**New ideas:** HTML in `page.h`, and a second path for an action.
+
+Create **`page.h`**:
+
+```cpp
+const char PAGE[] = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bobby Remote</title>
+  <style>
+    body   { font-family: sans-serif; text-align: center; margin-top: 40px; }
+    button { padding: 12px 24px; font-size: 18px; }
+  </style>
+</head>
+<body>
+  <h1>Bobby Remote</h1>
+  <button onclick="toggleLED()">Toggle LED</button>
+
+  <script>
+    function toggleLED() {
+      fetch('/toggle');
+    }
+  </script>
+</body>
+</html>
+)rawliteral";
+```
+
+In the `.ino`:
+
+1. Add `#include "page.h"` under `#include "secrets.h"`.
+2. Add `#define LED_PIN 8`, and a variable above `setup()`: `bool ledOn = false;`
+3. In `setup()`, before Wi‑Fi: `pinMode(LED_PIN, OUTPUT);` and `digitalWrite(LED_PIN, HIGH);` (off, since it's active low).
+4. Change `handleRoot` to send the page as **HTML**:
+   ```cpp
+   void handleRoot() {
+     server.send(200, "text/html", PAGE);
+   }
+   ```
+5. Add the toggle handler, and link it in `setup()` with `server.on("/toggle", handleToggle);`:
+   ```cpp
+   void handleToggle() {
+     ledOn = !ledOn;
+     digitalWrite(LED_PIN, ledOn ? LOW : HIGH);   // active low
+     server.send(200, "text/plain", ledOn ? "LED ON" : "LED OFF");
+   }
+   ```
+
+**Test:** tap **Toggle LED**. The blue LED switches on and off.
+
+**What happened:**
+- `"text/html"` tells the browser to **draw** the reply as a page, instead of showing it as text.
+- **`<meta name="viewport" ...>`** makes the page fit a phone screen instead of looking zoomed out.
+- **`fetch('/toggle')`** is JavaScript asking the ESP32 for `/toggle` **in the background**, without leaving the page.
+- Name the variable after **what it means** (`ledOn`), so it doesn't clash with step 5's screen invert.
+
+---
+
+### Step 3: Show the board's reply on the page
+
+**New idea:** reading the reply in JavaScript.
+
+The ESP32 already replies `LED ON` or `LED OFF`, but the page ignores it. In `page.h`, add a paragraph under the button:
+
+```html
+<p id="reply"></p>
+```
+
+and replace the script with a reusable `send()` function:
+
+```html
+<script>
+  function send(path) {
+    fetch(path)
+      .then(r => r.text())
+      .then(t => document.getElementById('reply').textContent = t);
+  }
+</script>
+```
+
+Change the button to use it: `<button onclick="send('/toggle')">Toggle LED</button>`
+
+**Test:** the page now shows `LED ON` or `LED OFF` under the button.
+
+**What happened:** `fetch` returns the reply; `.then(r => r.text())` reads it as text; the next `.then` puts it into the element with `id="reply"`. From now on, every button is just `send('/some-path')`.
+
+---
+
+### Step 4: Send a message to the OLED
+
+**New idea:** URL **parameters**, extra data after a `?`.
+
+Add a handler, and link it with `server.on("/msg", handleMsg);`:
+
+```cpp
+void handleMsg() {
+  String text = server.arg("text");   // the value after ?text=
+  showText(text, 2);
+  server.send(200, "text/plain", "Showing: " + text);
+}
+```
+
+**Test it before building any page:** type this straight into the browser's address bar:
+
+```
+http://192.168.1.42/msg?text=hello
+```
+
+`hello` appears on the OLED. That's all a button does behind the scenes: it asks for a URL.
+
+Now add a text box and button to `page.h`, above the reply paragraph:
+
+```html
+<input id="msg" placeholder="Type a message">
+<button onclick="sendMsg()">Show on screen</button>
+```
+
+and this function inside `<script>`:
+
+```js
+function sendMsg() {
+  const text = document.getElementById('msg').value;
+  send('/msg?text=' + encodeURIComponent(text));
+}
+```
+
+**What happened:** `encodeURIComponent` makes text safe for a URL. Spaces and symbols like `&` or `?` would otherwise break it (a space becomes `%20`).
+
+Text size 2 fits about 10 characters per line and 4 lines. Use `showText(text, 1)` for longer messages.
+
+---
+
+### Step 5: More controls
+
+**New idea:** the pattern. Every feature is **one handler + one `server.on` + one button**.
+
+```cpp
+bool screenInverted = false;
+
+void handleInvert() {
+  screenInverted = !screenInverted;
+  display.invertDisplay(screenInverted);
+  server.send(200, "text/plain", screenInverted ? "Inverted" : "Normal");
+}
+
+void handleClear() {
+  display.clearDisplay();
+  display.display();
+  server.send(200, "text/plain", "Cleared");
+}
+```
+
+```cpp
+server.on("/invert", handleInvert);
+server.on("/clear", handleClear);
+```
+
+```html
+<button onclick="send('/invert')">Invert screen</button>
+<button onclick="send('/clear')">Clear screen</button>
+```
+
+**Make it look like an app** by adding to the `<style>` in `page.h`:
+
+```css
+body   { background: #111; color: #eee; padding: 16px; }
+input, button { width: 100%; box-sizing: border-box; margin: 6px 0; font-size: 18px; padding: 12px; }
+button { background: #333; color: #eee; border: 1px solid #555; border-radius: 8px; }
+```
+
+On the phone, use **Share → Add to Home Screen** to open it like an app.
+
+---
+
+### Step 6: Make it reliable
+
+**New ideas:** a name instead of an IP, and reconnecting by itself.
+
+**A name instead of a number:** add `#include <ESPmDNS.h>`, and after the Wi‑Fi `while` loop in `setup()`:
+
+```cpp
+MDNS.begin("bobby");   // now also reachable at http://bobby.local
+```
+
+`bobby.local` works on iPhones and Macs on any network. Many Android phones don't support it, so keep showing the IP on the OLED.
+
+**Reconnect if Wi‑Fi drops** (router restart, weak signal). Change `loop()` to:
+
+```cpp
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    WiFi.reconnect();
+    delay(1000);
+    return;   // try again on the next loop
+  }
+  server.handleClient();
+}
+```
+
+---
+
+### In Wokwi
+
+Your phone can't reach the simulator, but your **Mac's browser** can, through a **port forward** in `wokwi.toml`:
+
+```toml
+[wokwi]
+version = 1
+firmware = "build/10-web-remote.ino.bin"
+elf = "build/10-web-remote.ino.elf"
+
+[[net.forward]]
+from = "localhost:8180"
+to = "target:80"
+```
+
+With `Wokwi-GUEST` in `secrets.h`, start the simulator and open **`http://localhost:8180`** on your Mac. `localhost` means "this computer", and Wokwi passes port 8180 into the simulated ESP32's port 80.
+
+### On the real board
+
+1. Put your **real** Wi‑Fi details in `secrets.h`.
+2. Upload and watch:
+   ```bash
+   source .env
+   arduino-cli compile -u -p $PORT --fqbn $FQBN lessons/10-web-remote
+   arduino-cli monitor -p $PORT -c baudrate=115200
+   ```
+3. Connect your phone to the **same Wi‑Fi**, and open the address shown on the OLED.
+
+### About the IP address
+
+Your router **lends** addresses to devices (this is called **DHCP**). The ESP32 usually gets the same one back, but it can change after the router restarts, and it's **different on every network**:
+
+| Network | Typical ESP32 address |
+|---|---|
+| Home Wi‑Fi | `192.168.1.x` (depends on the router) |
+| iPhone hotspot | `172.20.10.x` |
+| Android hotspot | varies, often `192.168.43.x` |
+| ESP32's own network (AP mode) | always `192.168.4.1` |
+
+That's why step 1 shows the IP on the OLED. For a permanent address at home, look for **"DHCP reservation"** in your router's settings.
+
+### If it doesn't work
+
+| Problem | Fix |
+|---|---|
+| OLED stuck on "Connecting..." | Wrong Wi‑Fi details, 5 GHz network, or weak antenna (`setTxPower` line) |
+| Phone says "can't reach this page" | Phone must be on the **same Wi‑Fi** (not mobile data or a guest network). Type **`http://`**, not `https://`. |
+| Works on the Mac, not on the phone | Phone is on a different network, or the browser forced `https://` |
+| Doesn't load on the Mac either | The router may block devices from talking to each other ("client isolation", common on guest networks) |
+| Worked, then stopped | The IP changed. Press RST and read the OLED. |
+
+**Safety:** anyone on the same Wi‑Fi can open this page and press the buttons. Fine at home; on shared networks, use your phone's hotspot. Don't expose it to the internet.
+
+### Next
+
+- **Lesson 11 ideas:** use it **away from home**: the ESP32 creates its own Wi‑Fi (`WiFi.softAP`, AP mode), joins your phone's hotspot (`WiFiMulti`), or lets you pick any network from your phone (the **WiFiManager** library), plus a login on the page (`server.authenticate`).
+- **Try:** a brightness slider (`<input type="range" min="0" max="255" onchange="send('/bright?v=' + this.value)">` and a handler that calls `display.ssd1306_command(SSD1306_SETCONTRAST)` then `display.ssd1306_command(value)`), a button for the Lesson 8 clock, or one per Lesson 9 picture.
 
 ---
 
