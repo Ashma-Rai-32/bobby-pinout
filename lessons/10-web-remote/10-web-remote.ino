@@ -31,6 +31,27 @@ void handleToggle(){
     server.send(200, "text/plain", ledOn?"ON":"OFF");
 }
 
+void handleMsg() {
+  String text = server.arg("text");   // the value after ?text=
+  showText(text, 2);
+  server.send(200, "text/plain", "Showing: " + text);
+}
+bool screenInverted=false;
+void handleInvert(){
+  screenInverted= !screenInverted;
+
+  display.invertDisplay(screenInverted);
+  server.send(200, "text/plain", screenInverted? "Inverted":"Normal");
+
+}
+
+void handleClear(){
+  display.clearDisplay();
+  display.display();
+  server.send(200, "text/plain", "Cleared");
+}
+
+
 void setup() {
   Serial.begin(115200);
   Wire.begin(SDA_PIN, SCL_PIN);
@@ -56,6 +77,9 @@ void setup() {
 
   server.on("/", handleRoot);   // "/" = the main page
   server.on("/toggle", handleToggle); 
+  server.on("/msg", handleMsg); 
+  server.on("/invert", handleInvert);
+  server.on("/clear", handleClear);
   server.begin();
 }
 
